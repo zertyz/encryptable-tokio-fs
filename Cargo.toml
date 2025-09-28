@@ -14,7 +14,7 @@ license       = "Unlicense"
 [workspace]
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["fs"] }
+tokio = { version = "1", default-features = false, features = ["fs", "io-util"] }
 chacha20 = { version = "0.9", default-features = false, features = ["std", "zeroize"] }
 rand = { version = "0.9", default-features = false, features = ["thread_rng"] }
 
