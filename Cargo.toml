@@ -1,6 +1,6 @@
 [package]
 name = "encryptable-tokio-fs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "A drop-in, API-identical replacement for `tokio::fs` with transparent opt-in, non-framing stream cipher encryption"
 keywords      = ["encryption", "security", "filesystem", "ChaCha20", "stream"]
