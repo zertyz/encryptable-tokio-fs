@@ -9,18 +9,13 @@ To use it:
 2) To enable encryption, call `encryptable-tokio-fs::fs::set_key()`. All file operations, from that point on, will be encrypted.
 3) By not setting a key, file operations will be exactly the same as `tokio::fs` -- a.k.a., "plain-text".
 
-# Global context vs Instanciated
-
-On the above usage example, a single key would be used for all file operations -- since the easiest integration path is
-to keep using the global context.
-
-Nonetheless, there are APIs to instantiate the encryptable FS layer 
-
 ## Pre-release API
 
-We are in the pre-release API, where only the `CryptableAsyncReader` & `CryptableAsyncWriter` are implemented.
+We are in the pre-release API, where only a small -- but very useful portion -- of the whole API is implemented.
+Specifically, the `CryptorAsyncReader` & `CryptorAsyncWriter` are fully implemented, effectively allowing
+the provided `File` object to be encrypted. 
 
-This is good for a great deal of file operations, but still lacking:
+On the other side, we are still lacking:
 1) File Name & Path encryption
 2) Traversing the filesystem (encrypted portion of it)
 3) Seek support
@@ -30,6 +25,15 @@ This is good for a great deal of file operations, but still lacking:
 ## Implementation Status
 
 Although the API is still very simplistic, the implementation is efficient, secure, decoupled, and has been fully tested.
+
+Your inputs are welcome to guide further development. Please create a `Github Issue` with requests or suggestions.
+
+# Global context vs Instantiated
+
+On the above usage example, a single key would be used for all file operations -- since the easiest integration path is
+to keep using the global context.
+
+Nonetheless, there will be APIs to instantiate the encryptable FS layer -- allowing multiple keys to be used.
 
 ## Security model
 
@@ -53,3 +57,4 @@ Why this design: files remain seekable with raw stream encryption; adding per-fr
 When not to use this crate: configuration that gates security decisions, self-describing formats that could be abused by bit flips, or any scenario where undetected modification is unacceptable.
 
 Terminology note: “encryption” here means confidentiality. If you need authenticated encryption (confidentiality and integrity), use an AEAD.
+
