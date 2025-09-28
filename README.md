@@ -2,7 +2,7 @@
 
 A drop-in, API-identical replacement for `tokio::fs` with transparent opt-in, non-framing stream cipher encryption.
 
-This crate is a full API mirror of `tokio::fs`. When a cryptographic key is provided, data is automatically encrypted/decrypted using the `XChaCha20` stream cipher during file reads and writes, requiring zero application-side code changes.
+This crate _is_ *aims to be* a full API mirror of `tokio::fs`. When a cryptographic key is provided, data is automatically encrypted/decrypted using the `XChaCha20` stream cipher during file reads and writes, requiring zero application-side code changes.
 
 To use it:
 1) Search and replace all `tokio::fs` for `encryptable-tokio-fs::fs`
@@ -19,6 +19,9 @@ async fn main() {
 
     // comment/uncomment to see the file being written in plain/encrypted modes
     fs::set_key(*b"123456789 123456789 123456789 12");
+    // the above is really bad: do not place keys inside the binary.
+    // If unavoidable -- e.g., to load initial configs where the
+    // per-customer key resides -- use `litcrypt`.
 
     fs::write(FILE, CONTENTS).await
         .expect("Failed to write to file");
@@ -30,6 +33,11 @@ async fn main() {
 
 }
 ```
+
+## Use case
+
+This crate was designed to hide data at rest on programs shipped to stakeholders, executing on their premises. If an attacker is able to run the program in a debugging session,
+the encryption key might be known and any elaborated security models would become ephemeral. Please see more in `Security model` and a proposed "quick fix" at the end of this document.
 
 ## Pre-release API
 
@@ -82,3 +90,28 @@ However, there is a caveat: if any of the first 192 bits of any encrypted file a
 
 Why this design: files remain seekable with raw stream encryption; adding per-frame authentication would change that trade-off. This crate intentionally keeps the plain-text-like
 ergonomics for reading/seek.
+
+## No seek, possibly support append, but solving the integrity & authentication issues Trade-off
+
+By incorporating compression, we may solve all the issues raised in the security model above -- at the expense of losing seek support.
+Maybe we can work with both variants:
+1) `encryptable-tokio-fs::fs::set_key()` -- enables encryption (but no integrity nor authentication) and supports the full `tokio::fs` API.
+2) `encryptable-tokio-fs::fs::set_compressor()` -- enables compression (possibly on top of encryption): provides integrity & authentication (immune to "casual attacks") but disables `seek` and, possibly, `append`.
+
+To further improve a little bit on the security -- provided an attacker is not able to conduct a debugging session:
+* No compressor error message will leak. It will just fail with "tempered data";
+* Before shouting "tempered data", a sleep of 1 second will be enforced;
+* Users are strongly advised to hide -- as much as possible -- the contents of the encrypted files.
+  If unavoidable, the further delaying presenting this information the better. E.g.: if `--verbose` is enabled,
+  sleep for 1 second before starting the program.
+
+With these additions, we estimate the cost for a determined attacker to effectively change a "license expiry date" on a yaml file to be at around ~40k.
+Please do not use this crate to secure higher valuable assets.
+
+The above cost holds true provided you obfuscate the binary enough to make debugging sessions fruitless:
+* Binary building options: strip debug info, use aggressive linking optimizations (fat), use codegen-units = 1, panic = abort, statically link as most as possible.
+
+and bail out if a debugger has been detected:
+* Linux: Check the `P_TRACED` flag in the `/proc/self/status` file or use the `ptrace` system call (the well-known "ptrace trick")
+* Windows: Call the `IsDebuggerPresent()` function from the WinAPI, or check the `BeingDebugged` flag in the Process Environment Block (PEB)
+* You can also search among process names for known debuggers: gdb, lldb, x64dbg, ollydbg, ...

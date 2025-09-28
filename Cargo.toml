@@ -22,3 +22,4 @@ rand = { version = "0.9", default-features = false, features = ["thread_rng"] }
 
 # for the examples
 tokio = { version = "1", features = ["full"] }
+litcrypt = "0.4"    # to encrypt the key inside the `wr` example
