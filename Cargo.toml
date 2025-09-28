@@ -1,0 +1,21 @@
+[package]
+name = "encryptable-tokio-fs"
+version = "0.1.0"
+edition = "2021"
+description = "A drop-in, API-identical replacement for `tokio::fs` with transparent opt-in, non-framing stream cipher encryption"
+keywords      = ["encryption", "security", "filesystem", "ChaCha20", "stream"]
+categories    = ["api-bindings", "asynchronous", "cryptography"]
+readme        = "README.md"
+authors       = ["Luiz Silveira <zertyz@gmail.com>"]
+homepage      = "https://github.com/zertyz/encryptable-tokio-fs"
+repository    = "https://github.com/zertyz/encryptable-tokio-fs"
+documentation = "https://docs.rs/encryptable-tokio-fs/"
+license       = "Unlicense"
+[workspace]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+chacha20 = { version = "0.9", features = ["std", "zeroize"] }
+once_cell = "1"
+rand = { version = "0.9", features = ["thread_rng"] }
+zeroize = { version = "1", features = ["derive"]}
