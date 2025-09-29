@@ -30,7 +30,7 @@ pub fn set_keys(keys: EncryptionKeys) -> Option<EncryptionKeys> {
 
 pub fn set_keys_from_passphrase(passphrase: &str) {
 
-    assert!(passphrase.as_bytes().len() >= KEY_LEN, "`passphrase` needs to be no less than {KEY_LEN} bytes");
+    assert!(passphrase.len() >= KEY_LEN, "`passphrase` needs to be no less than {KEY_LEN} bytes");
 
     let key = derive_key(passphrase.as_bytes());
     let derived_key = derive_key(key.as_ref());

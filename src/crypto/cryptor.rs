@@ -196,7 +196,7 @@ pub struct CryptorAsyncReader<'a, InnerAsyncReaderType> {
     cryptor: CryptorForReading<'a>,
 }
 
-impl<'a, InnerAsyncReaderType: tokio::io::AsyncRead + Unpin> CryptorAsyncReader<'a, InnerAsyncReaderType> {
+impl<'a, InnerAsyncReaderType: tokio::io::AsyncRead> CryptorAsyncReader<'a, InnerAsyncReaderType> {
     pub fn new(inner: InnerAsyncReaderType, key: &'a [u8; 32]) -> Self {
         Self {
             inner,
@@ -267,7 +267,7 @@ pub struct CryptorAsyncWriter<T> {
     preserved_buffer: Option<Vec<u8>>,
 }
 
-impl<T: tokio::io::AsyncWrite + Unpin> CryptorAsyncWriter<T> {
+impl<T: tokio::io::AsyncWrite> CryptorAsyncWriter<T> {
     pub fn new(inner: T, key: &[u8; 32]) -> Self {
         Self {
             inner,
@@ -345,10 +345,10 @@ std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<()>> {
         let inner_ptr = std::ptr::addr_of_mut!(self.inner);
-        let mut inner = unsafe { &mut *inner_ptr };
+        let inner = unsafe { &mut *inner_ptr };
         if let Some(preserved_buffer) = &mut self.preserved_buffer {
             if !preserved_buffer.is_empty() {
-                return match Self::write_preserved_buffer(std::pin::pin!(&mut inner), cx, preserved_buffer) {
+                return match Self::write_preserved_buffer(std::pin::Pin::new(inner), cx, preserved_buffer) {
                     Poll::Ready(Ok(_written)) => std::pin::pin!(inner).poll_flush(cx),
                     Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
                     Poll::Pending => Poll::Pending,
