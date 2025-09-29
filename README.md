@@ -2,7 +2,7 @@
 
 A drop-in, API-identical replacement for `tokio::fs` with transparent opt-in, non-framing stream cipher encryption.
 
-This crate _is_ *aims to be* a full API mirror of `tokio::fs`. When a cryptographic key is provided, data is automatically encrypted/decrypted using the `XChaCha20` stream cipher during file reads and writes, requiring zero application-side code changes.
+This crate ~~is~~ *aims to be* a full API mirror of `tokio::fs`. When a cryptographic key is provided, data is automatically encrypted/decrypted using the `XChaCha20` stream cipher during file reads and writes, requiring zero application-side code changes.
 
 To use it:
 1) Search and replace all `tokio::fs` for `encryptable-tokio-fs::fs`
@@ -18,10 +18,11 @@ async fn main() {
     const FILE: &str = "/tmp/wr.file";
 
     // comment/uncomment to see the file being written in plain/encrypted modes
-    fs::set_key(*b"123456789 123456789 123456789 12");
-    // the above is really bad: do not place keys inside the binary.
+    fs::set_keys_from_passphrase("123456789 123456789 123456789 12");
+    // the above is terrible: do not place keys inside the binary.
     // If unavoidable -- e.g., to load initial configs where the
     // per-customer key resides -- use `litcrypt`.
+    // The `wr.rs` example shows how this should be done.
 
     fs::write(FILE, CONTENTS).await
         .expect("Failed to write to file");
@@ -34,17 +35,35 @@ async fn main() {
 }
 ```
 
-## Use case
+## Use Case and Security Context
 
-This crate was designed to hide data at rest on programs shipped to stakeholders, executing on their premises. If an attacker is able to run the program in a debugging session,
-the encryption key might be known and any elaborated security models would become ephemeral. Please see more in `Security model` and a proposed "quick fix" at the end of this document.
+### Use Case
+
+This crate is designed to **obfuscate data at rest** for programs deployed to external premises (e.g., client environments).
+Its primary function is to deter casual analysis and make it harder for an adversary to immediately locate and view sensitive data
+(configuration, proprietary content, etc.) within the program's files.
+
+### Security Note
+
+It is critical to understand that this crate provides security through obscurity, not robust, long-term cryptographic protection -- a weakness of using
+client-side data protection without a secure hardware module.
+
+If an attacker is able to execute the program in a debugging environment (e.g., using GDB or WinDbg), the encryption key will be, eventually, loaded into memory.
+Once the program is under an analyst's control, they can easily:
+1) Inspect memory to **extract the plaintext key**.
+2) Set breakpoints on the decryption function to **view the data immediately after decryption**.
+
+Therefore, the protection offered is ephemeral once active reverse engineering begins.
+
+For a more comprehensive defense, this encryption strategy must be paired with strong anti-debugging and code obfuscation techniques.
+Please see the `Security Model` and `Mitigation` sections at the end of this document for details on a layered approach.
 
 ## Pre-release API
 
-We are in the pre-release API, where only a small -- but very useful -- portion of the whole API is implemented.
+We are in the pre-release API, where only a small -- but very useful -- portion of the whole `tokio::fs` API is implemented.
 
-Specifically, the `CryptorAsyncReader` & `CryptorAsyncWriter` are fully implemented, effectively allowing
-the replacement `File` object to be encrypted. 
+Specifically, the `CryptorAsyncReader` & `CryptorAsyncWriter` are fully implemented, tested, and optimized,
+effectively allowing using the replacement `File` object for encryption / decryption. 
 
 On the other side, we are still lacking:
 1) File Name & Path encryption
@@ -55,23 +74,23 @@ On the other side, we are still lacking:
 
 ## Implementation Status
 
-Although the API is still very simplistic, the implementation is efficient, secure, decoupled, and has been fully tested.
+Although the API is still incomplete, the implementation is efficient, secure, decoupled, and has been fully tested.
 
-Your inputs are welcome to guide further development. Please create a `Github Issue` with requests or suggestions.
+Your inputs are welcome to guide further developments. Please create a `Github Issue` with requests or suggestions.
 
 ## Global context vs Instantiated
 
 On the above usage example, a single key would be used for all file operations -- since the easiest integration path is
-to keep using the global context, exactly as `tokio` does.
+to keep using the global context, exactly as `tokio` does when using file APIs under `tokio::fs`.
 
 Nonetheless, there will be APIs to instantiate the cryptor FS layer -- allowing multiple keys to be used simultaneously.
 
 Using the global context is easier, but has the downside to require the key to be stored in RAM until the process ends, which may be
-of concern if you are executing it in adverse environments.
+of concern when executing it in adverse environments.
 
 ## Security model
 
-This crate provides confidentiality only: it encrypts bytes so they are unreadable without the key.
+This crate, currently, provides confidentiality only: it encrypts bytes so they are unreadable without the key.
 It does not provide integrity or authenticity.
 
 What you get: secrecy of file contents (assuming key secrecy).
@@ -91,12 +110,15 @@ However, there is a caveat: if any of the first 192 bits of any encrypted file a
 Why this design: files remain seekable with raw stream encryption; adding per-frame authentication would change that trade-off. This crate intentionally keeps the plain-text-like
 ergonomics for reading/seek.
 
-## No seek, possibly support append, but solving the integrity & authentication issues Trade-off
+## Mitigations
+
+### No seek, possibly support append, but solving the integrity & authentication issues Trade-off
 
 By incorporating compression, we may solve all the issues raised in the security model above -- at the expense of losing seek support.
 Maybe we can work with both variants:
-1) `encryptable-tokio-fs::fs::set_key()` -- enables encryption (but no integrity nor authentication) and supports the full `tokio::fs` API.
-2) `encryptable-tokio-fs::fs::set_compressor()` -- enables compression (possibly on top of encryption): provides integrity & authentication (immune to "casual attacks") but disables `seek` and, possibly, `append`.
+1) `encryptable-tokio-fs::fs::set_key()` -- enables encryption (but no integrity nor authentication) and support for the full `tokio::fs` API.
+2) `encryptable-tokio-fs::fs::set_compressor()` -- enables compression (on top of encryption): provides integrity & authentication
+                                                   (immune to "casual attacks") but disables `seek` and, possibly, `append`.
 
 To further improve a little bit on the security -- provided an attacker is not able to conduct a debugging session:
 * No compressor error message will leak. It will just fail with "tempered data";
@@ -114,4 +136,4 @@ The above cost holds true provided you obfuscate the binary enough to make debug
 and bail out if a debugger has been detected:
 * Linux: Check the `P_TRACED` flag in the `/proc/self/status` file or use the `ptrace` system call (the well-known "ptrace trick")
 * Windows: Call the `IsDebuggerPresent()` function from the WinAPI, or check the `BeingDebugged` flag in the Process Environment Block (PEB)
-* You can also search among process names for known debuggers: gdb, lldb, x64dbg, ollydbg, ...
+* You can also search among process names for known debuggers: gdb, lldb, x64dbg, ollydbg, windbg, ...

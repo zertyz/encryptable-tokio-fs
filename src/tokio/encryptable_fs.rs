@@ -1,30 +1,65 @@
 use std::io::ErrorKind;
+use crate::crypto::cryptor::KEY_LEN;
 use crate::crypto::cryptor::{CryptorAsyncReader, CryptorAsyncWriter};
 use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use sha2::{Digest, Sha256};
 use tokio::io;
 pub use tokio::fs::*;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-pub type Key = [u8; crate::crypto::cryptor::KEY_LEN];
+pub type ChaCha20Key = [u8; KEY_LEN];
 
-static mut ENCRYPTION_KEY: Option<Key> = None;
-
-pub fn set_key(key: Key) -> Option<Key> {
-    let old_key = unsafe {
-        #[allow(static_mut_refs)]
-        ENCRYPTION_KEY.replace(key)
-    };
-    std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
-    old_key
+pub struct EncryptionKeys {
+    content_key: ChaCha20Key,
+    _path_key: ChaCha20Key,
 }
 
-fn get_key() -> &'static Option<Key> {
+static mut ENCRYPTION_KEYS: Option<EncryptionKeys> = None;
+
+pub fn set_keys(keys: EncryptionKeys) -> Option<EncryptionKeys> {
+    let old_keys = unsafe {
+        #[allow(static_mut_refs)]
+        ENCRYPTION_KEYS.replace(keys)
+    };
+    std::sync::atomic::fence(std::sync::atomic::Ordering::SeqCst);
+    old_keys
+
+}
+
+pub fn set_keys_from_passphrase(passphrase: &str) {
+
+    assert!(passphrase.as_bytes().len() >= KEY_LEN, "`passphrase` needs to be no less than {KEY_LEN} bytes");
+
+    let key = derive_key(passphrase.as_bytes());
+    let derived_key = derive_key(key.as_ref());
+    set_keys(EncryptionKeys {
+        content_key: key,
+        _path_key: derived_key,
+    });
+}
+
+pub fn set_keys_from_base(key: ChaCha20Key) {
+    let derived_key = derive_key(key.as_ref());
+    set_keys(EncryptionKeys {
+        content_key: key,
+        _path_key: derived_key,
+    });
+}
+
+fn get_content_key() -> Option<&'static ChaCha20Key> {
     unsafe {
         #[allow(static_mut_refs)]
-        &ENCRYPTION_KEY
+        ENCRYPTION_KEYS.as_ref().map(|keys| &keys.content_key)
     }
+}
+
+fn derive_key(key: &[u8]) -> ChaCha20Key {
+    let mut hasher = Sha256::new();
+    hasher.update(key);
+    let hash_result = hasher.finalize();
+    hash_result.into()
 }
 
 // Tokio FS API replacements
@@ -32,7 +67,7 @@ fn get_key() -> &'static Option<Key> {
 
 /// Encryptable replacement for [tokio::fs::read()]
 pub async fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
-    match get_key() {
+    match get_content_key() {
         None => tokio::fs::read(path).await,
         Some(_key) => {
             let file = File::open(path).await?;
@@ -46,7 +81,7 @@ pub async fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
 
 /// Encryptable replacement for [tokio::fs::write()]
 pub async fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
-    match get_key() {
+    match get_content_key() {
         None => tokio::fs::write(path, contents).await,
         Some(_key) => {
             let file = File::create(path).await?;
@@ -70,7 +105,7 @@ impl File {
     /// Encryptable replacement for [tokio::fs::File::open()]
     pub async fn open(path: impl AsRef<Path>) -> io::Result<File> {
         Ok(
-            match get_key() {
+            match get_content_key() {
                 None => File::Plain { tokio_file: tokio::fs::File::open(path).await? },
                 Some(key) => File::EncryptedReader { cryptor_async_reader: CryptorAsyncReader::new(tokio::fs::File::open(path).await?, key) }
             }
@@ -80,7 +115,7 @@ impl File {
     /// Encryptable replacement for [tokio::fs::File::create()]
     pub async fn create(path: impl AsRef<Path>) -> io::Result<File> {
         Ok(
-            match get_key() {
+            match get_content_key() {
                 None => File::Plain { tokio_file: tokio::fs::File::create(path).await? },
                 Some(key) => File::EncryptedWriter { cryptor_async_writer: CryptorAsyncWriter::new(tokio::fs::File::create(path).await?, key) }
             }

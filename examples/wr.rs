@@ -9,13 +9,13 @@ use_litcrypt!();
 #[tokio::main]
 async fn main() {
     use encryptable_tokio_fs::fs;
-    const CONTENTS: &[u8] = b"Congrats! The contents had been successfully written and read back! Now go and inspect the actual file contents!";
     const FILE: &str = "/tmp/wr.file";
+    let contents = format!("Congrats! The contents had been successfully written and read back! Now go and inspect the actual file contents of '{FILE}'");
 
     // comment/uncomment to see the file being written in plain/encrypted modes
-    fs::set_key(lc!("123456789 123456789 123456789 12").as_bytes().try_into().expect(&lc!("Key is not of the correct size")));
+    fs::set_keys_from_passphrase(lc!("123456789 123456789 123456789 12").as_ref());
 
-    fs::write(FILE, CONTENTS).await
+    fs::write(FILE, contents).await
         .expect("Failed to write to file");
 
     let contents = fs::read(FILE).await

@@ -175,8 +175,10 @@ impl CryptorForWriting {
     }
 
     fn build_cipher(cryptor: &Cryptor) -> (XChaCha20, [u8; NONCE_LEN]) {
+        use rand::TryRngCore;
         let mut xnonce_bytes = [0u8; NONCE_LEN];
-        rand::fill(&mut xnonce_bytes);
+        rand::rngs::OsRng.try_fill_bytes(&mut xnonce_bytes)
+            .expect("OS Random Generator seems to be misconfigured");
         let cipher = cryptor.build_cipher(&xnonce_bytes);
         (cipher, xnonce_bytes)
     }

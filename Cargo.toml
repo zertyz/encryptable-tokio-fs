@@ -16,10 +16,26 @@ license       = "Unlicense"
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["fs", "io-util"] }
 chacha20 = { version = "0.9", default-features = false, features = ["std", "zeroize"] }
-rand = { version = "0.9", default-features = false, features = ["thread_rng"] }
+
+# for xnonce
+rand = { version = "0.9", default-features = false, features = ["os_rng"] }
+
+# for key derivation
+sha2 = { version = "0.10", default-features = false, features = ["sha2-asm"]}
 
 [dev-dependencies]
 
 # for the examples
 tokio = { version = "1", features = ["full"] }
 litcrypt = "0.4"    # to encrypt the key inside the `wr` example
+
+# for the path encryption spikes
+hex = "0.4"
+aes-siv = "0.7"          # AES-SIV (RFC 5297), misuse-resistant AEAD
+aead    = "0.5"
+base64  = "0.21"
+blake3  = "1"
+hkdf    = "0.12"
+walkdir = "2"
+anyhow  = "1"
+clap    = { version = "4", features = ["derive"] }
