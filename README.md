@@ -2,11 +2,12 @@
 
 A drop-in, API-identical replacement for `tokio::fs` with transparent opt-in, non-framing stream cipher encryption.
 
-This crate ~~is~~ *aims to be* a full API mirror of `tokio::fs`. When a cryptographic key is provided, data is automatically encrypted/decrypted using the `XChaCha20` stream cipher during file reads and writes, requiring zero application-side code changes.
+This crate ~~is~~ *aims to be* a full API mirror of `tokio::fs`. When a cryptographic key is provided, data is automatically encrypted/decrypted using
+the `XChaCha20` stream cipher during file reads and writes, requiring zero application-side code changes.
 
 To use it:
 1) Search and replace all `tokio::fs` for `encryptable-tokio-fs::fs`
-2) To enable encryption, call `encryptable-tokio-fs::fs::set_key()`. All file operations, from that point on, will be encrypted.
+2) To enable encryption, call `encryptable-tokio-fs::fs::set_keys()` (or helper alternatives). All file operations, from that point on, will be encrypted.
 3) By not setting a key, file operations will be exactly the same as `tokio::fs` -- a.k.a., "plain-text".
 
 ## Example
@@ -22,7 +23,7 @@ async fn main() {
     // the above is terrible: do not place keys inside the binary.
     // If unavoidable -- e.g., to load initial configs where the
     // per-customer key resides -- use `litcrypt`.
-    // The `wr.rs` example shows how this should be done.
+    // The `wr.rs` example shows how this could be done.
 
     fs::write(FILE, CONTENTS).await
         .expect("Failed to write to file");
@@ -39,24 +40,43 @@ async fn main() {
 
 ### Use Case
 
-This crate is designed to **obfuscate data at rest** for programs deployed to external premises (e.g., client environments).
-Its primary function is to deter casual analysis and make it harder for an adversary to immediately locate and view sensitive data
-(configuration, proprietary content, etc.) within the program's files.
+If you need to **obfuscate data at rest** for programs deployed to external premises (e.g., customer environments)
+in order to deter "casual analysis" and make it costly for an adversary to immediately locate and view sensitive data,
+and also need a **cross-platform**, **minimal refactoring**, and **opt-in encryption for file I/O in a `tokio` environment**,
+then a high-level wrapper approach like the one provided by this crate provides a robust and architecturally sound solution:
+* No need to inspect nor test every file operation. Just a search & replace plus a small setup code are needed to enable encryption;
+* The wrapper pattern is excellent for enforcing security policies. You may add a rule: If any of my project's file contain
+  `tokio::fs`, flag the failure: *"Don't use plain text file APIs directly! They should go through the opt-in encryption layer"*;
+* Easier yet: simply disable the `fs` feature of `tokio` and you will get the above rule enforced by the compiler -- no CI
+  or custom build scripts needed;
+
+Other approaches to the "encrypt my files" do exist, but they come with downsides for the presented use case:
+* FUSE (Filesystem in User Space):
+  - not cross-platform
+  - heavy on resources
+  - may be hard to debug & test
+* Using the Standard `AsyncRead` / `AsyncWrite` encryptors:
+  - only support stream based IO -- you can't `seek` within the files
+  - need to refactor every file operation
+  - or create a layer of your own
+  - you can't simply remove the `fs` feature from `tokio` without creating a new "layer crate"
+  - effectively, it will be hard to ensure new commits will adhere to the "support encryption for all file operations" requirement
+    without investing in several automated tests + relying on in code reviews.
 
 ### Security Note
 
 It is critical to understand that this crate provides security through obscurity, not robust, long-term cryptographic protection -- a weakness of using
 client-side data protection without a secure hardware module.
 
-If an attacker is able to execute the program in a debugging environment (e.g., using GDB or WinDbg), the encryption key will be, eventually, loaded into memory.
+If an attacker is able to execute the program in a debugging environment (e.g., using `gdb` or `WinDbg`), the encryption key will be, eventually, loaded into memory.
 Once the program is under an analyst's control, they can easily:
-1) Inspect memory to **extract the plaintext key**.
-2) Set breakpoints on the decryption function to **view the data immediately after decryption**.
+1) Inspect the memory and **extract the plaintext key**.
+2) Set breakpoints on the decryption function to **view the data immediately after decryption** or **tweak it before encryption**.
 
-Therefore, the protection offered is ephemeral once active reverse engineering begins.
+Therefore, elaborated protection efforts are ephemeral once active reverse engineering begins.
 
 For a more comprehensive defense, this encryption strategy must be paired with strong anti-debugging and code obfuscation techniques.
-Please see the `Security Model` and `Mitigation` sections at the end of this document for details on a layered approach.
+Please see the `Security Model` and `Mitigations` sections at the end of this document for details on a layered approach.
 
 ## Pre-release API
 
@@ -67,9 +87,9 @@ effectively allowing using the replacement `File` object for encryption / decryp
 
 On the other side, we are still lacking:
 1) File Name & Path encryption
-2) Traversing the filesystem (encrypted portion of it)
+2) Traversing the filesystem (the encrypted & authenticated portion of it)
 3) Seek support
-4) Append support (this would require seek, as the cypher needs also to read the headers and seek the cypher to the end position)
+4) Append support (this would require seek, as the cypher needs also to read the headers and also be pointed to the end byte offset)
 
 
 ## Implementation Status
@@ -81,9 +101,9 @@ Your inputs are welcome to guide further developments. Please create a `Github I
 ## Global context vs Instantiated
 
 On the above usage example, a single key would be used for all file operations -- since the easiest integration path is
-to keep using the global context, exactly as `tokio` does when using file APIs under `tokio::fs`.
+to keep using the global context (matching what `tokio` by exposing the APIs statically under `tokio::fs`).
 
-Nonetheless, there will be APIs to instantiate the cryptor FS layer -- allowing multiple keys to be used simultaneously.
+Nonetheless, there will be APIs to instantiate the "Cryptor FS layer" -- allowing multiple keys to be used simultaneously.
 
 Using the global context is easier, but has the downside to require the key to be stored in RAM until the process ends, which may be
 of concern when executing it in adverse environments.
@@ -91,9 +111,9 @@ of concern when executing it in adverse environments.
 ## Security model
 
 This crate, currently, provides confidentiality only: it encrypts bytes so they are unreadable without the key.
-It does not provide integrity or authenticity.
+It does not provide integrity or authenticity on the file contents.
 
-What you get: secrecy of file contents (assuming key secrecy).
+What you get: secrecy of file contents (assuming key secrecy), minimal overhead (24 extra bytes per file), full file operations support, including seek and append.
 
 What you do not get: detection of modifications, truncation, re-ordering, or header tampering. Any bit flips or edits to the encrypted file will decrypt to some bytes without error.
 
@@ -101,11 +121,12 @@ Corruption/tampering: disk glitches or malicious edits are not detected. We keep
 modification detection than storing plain-text. If your application requires modification detection, we recommend you to add your own checks for it to work for both encrypted or
 non-encrypted contents -- If you only care about accidental corruption (not adversaries), add a filesystem-level checksum (e.g., CRC32/64) or hash stored elsewhere and verify before use.
 
+However, there is a caveat: if any of the first 192 bits of any encrypted file are changed (the nonce header), the full contents of the file will become garbage to the program --
+without the possibility of data recovery.
+
 Threat model: equivalent to a plain-text file with OS-level permissions for integrity. If an attacker can modify the file, they can change the decrypted output without this crate noticing.
 
-We do not defend against malicious changes.
-
-However, there is a caveat: if any of the first 192 bits of any encrypted file are changed (the nonce header), the full contents of the file will become garbage.
+==> We do not defend against malicious changes.
 
 Why this design: files remain seekable with raw stream encryption; adding per-frame authentication would change that trade-off. This crate intentionally keeps the plain-text-like
 ergonomics for reading/seek.
@@ -130,8 +151,15 @@ To further improve a little bit on the security -- provided an attacker is not a
 With these additions, we estimate the cost for a determined attacker to effectively change a "license expiry date" on a yaml file to be at around ~40k.
 Please do not use this crate to secure higher valuable assets.
 
+### Dealing with debuggers
+
 The above cost holds true provided you obfuscate the binary enough to make debugging sessions fruitless:
-* Binary building options: strip debug info, use aggressive linking optimizations (fat), use codegen-units = 1, panic = abort, statically link as most as possible.
+* Suggested binary building options:
+  - strip debug info
+  - use aggressive linking optimizations (fat)
+  - use codegen-units = 1
+  - panic = abort
+  - statically link as most as possible.
 
 and bail out if a debugger has been detected:
 * Linux: Check the `P_TRACED` flag in the `/proc/self/status` file or use the `ptrace` system call (the well-known "ptrace trick")

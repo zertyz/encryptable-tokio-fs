@@ -31,7 +31,7 @@ sha2 = { version = "0.10", default-features = false }   # Fallback (Windows and 
 [dev-dependencies]
 
 # for the examples
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", default-features = false, features = ["macros", "rt-multi-thread"] } # specifically: no `fs` feature -- RW can only be done through our crate.
 litcrypt = "0.4"    # to encrypt the key inside the `wr` example
 
 # for the path encryption spikes
